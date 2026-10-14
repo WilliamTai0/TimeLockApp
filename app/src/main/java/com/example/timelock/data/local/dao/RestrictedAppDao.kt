@@ -16,8 +16,15 @@ interface RestrictedAppDao {
     @Query("SELECT * FROM restricted_apps WHERE packageName = :packageName LIMIT 1")
     suspend fun getRestrictedApp(packageName: String): RestrictedAppEntity?
 
-    @Query("SELECT EXISTS(SELECT 1 FROM restricted_apps WHERE packageName = :packageName AND isRestricted = 1)")
-    suspend fun isAppRestricted(packageName: String): Boolean
+    @Query("""
+        SELECT EXISTS(
+            SELECT 1 FROM restricted_apps 
+            WHERE packageName = :packageName 
+              AND isRestricted = 1 
+              AND (pendingUnlockUntil IS NULL OR pendingUnlockUntil > :now)
+        )
+    """)
+    suspend fun isAppRestricted(packageName: String, now: Long = System.currentTimeMillis()): Boolean
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertApp(app: RestrictedAppEntity)
@@ -27,4 +34,10 @@ interface RestrictedAppDao {
 
     @Query("DELETE FROM restricted_apps WHERE packageName = :packageName")
     suspend fun deleteByPackageName(packageName: String)
+
+    @Query("UPDATE restricted_apps SET pendingUnlockUntil = :unlockUntil WHERE packageName = :packageName")
+    suspend fun setPendingUnlock(packageName: String, unlockUntil: Long?)
+
+    @Query("DELETE FROM restricted_apps WHERE pendingUnlockUntil IS NOT NULL AND pendingUnlockUntil <= :now")
+    suspend fun cleanExpiredPendingUnlocks(now: Long = System.currentTimeMillis())
 }

@@ -105,6 +105,25 @@ class SessionManager(
         usageSessionDao.updateHeartbeat(sessionId, accumulatedMs, now)
     }
 
+    suspend fun canUseOvertimeTokenToday(): Boolean {
+        val calendar = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.HOUR_OF_DAY, 0)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }
+        val startOfDay = calendar.timeInMillis
+        val count = usageSessionDao.getDailyOvertimeTokenUsageCount(startOfDay)
+        return count < 1 // 每日限量 1 次
+    }
+
+    suspend fun applyOvertimePass(sessionId: Long, additionalMinutes: Int = 30): Boolean {
+        if (!canUseOvertimeTokenToday()) return false
+        val additionalMs = additionalMinutes * 60_000L
+        usageSessionDao.extendSessionDuration(sessionId, additionalMs)
+        return true
+    }
+
     companion object {
         const val GRACE_PERIOD_MS = 180_000L // 3 分鐘寬限期
         const val COOLDOWN_PERIOD_MS = 180_000L // 3 分鐘冷卻期

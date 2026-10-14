@@ -174,7 +174,8 @@ class WindowOverlayManager(private val context: Context) {
      */
     fun showFloatingTimer(
         remainingMsFlow: StateFlow<Long>,
-        totalDurationMs: Long
+        totalDurationMs: Long,
+        onCapsuleTap: () -> Unit = {}
     ) {
         if (!XiaomiPermissionHelper.hasOverlayPermission(context)) return
         dismissFloatingTimer()
@@ -238,7 +239,8 @@ class WindowOverlayManager(private val context: Context) {
                             try {
                                 windowManager.updateViewLayout(composeViewRef, params)
                             } catch (_: Exception) {}
-                        }
+                        },
+                        onTap = onCapsuleTap
                     )
                 }
             }

@@ -35,7 +35,8 @@ fun FloatingCapsuleContent(
     remainingMsFlow: StateFlow<Long>,
     totalDurationMs: Long,
     onDragDelta: (Int, Int) -> Unit,
-    onDragEnd: () -> Unit
+    onDragEnd: () -> Unit,
+    onTap: () -> Unit = {}
 ) {
     val remainingMs by remainingMsFlow.collectAsState()
     var lastInteractionTime by remember { mutableStateOf(System.currentTimeMillis()) }
@@ -76,6 +77,8 @@ fun FloatingCapsuleContent(
         androidx.compose.material3.MaterialTheme.colorScheme.onSurface
     }
 
+    var totalDragDistance by remember { mutableStateOf(0f) }
+
     Surface(
         shape = RoundedCornerShape(percent = 50),
         color = backgroundColor,
@@ -88,15 +91,21 @@ fun FloatingCapsuleContent(
                 detectDragGestures(
                     onDragStart = {
                         lastInteractionTime = System.currentTimeMillis()
+                        totalDragDistance = 0f
                     },
                     onDrag = { change, dragAmount ->
                         change.consume()
                         lastInteractionTime = System.currentTimeMillis()
+                        totalDragDistance += kotlin.math.abs(dragAmount.x) + kotlin.math.abs(dragAmount.y)
                         onDragDelta(dragAmount.x.toInt(), dragAmount.y.toInt())
                     },
                     onDragEnd = {
                         lastInteractionTime = System.currentTimeMillis()
-                        onDragEnd()
+                        if (totalDragDistance < 15f) {
+                            onTap()
+                        } else {
+                            onDragEnd()
+                        }
                     },
                     onDragCancel = {
                         lastInteractionTime = System.currentTimeMillis()

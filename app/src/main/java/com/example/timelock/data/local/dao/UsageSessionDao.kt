@@ -40,6 +40,19 @@ interface UsageSessionDao {
 
     @Query("""
         UPDATE usage_sessions 
+        SET expectedDurationMs = expectedDurationMs + :additionalMs, usedOvertimeToken = 1 
+        WHERE sessionId = :sessionId
+    """)
+    suspend fun extendSessionDuration(sessionId: Long, additionalMs: Long)
+
+    @Query("""
+        SELECT COUNT(*) FROM usage_sessions 
+        WHERE usedOvertimeToken = 1 AND startTime >= :startOfDayTimestamp
+    """)
+    suspend fun getDailyOvertimeTokenUsageCount(startOfDayTimestamp: Long): Int
+
+    @Query("""
+        UPDATE usage_sessions 
         SET isActive = 0, actualDurationMs = :actualDurationMs, endTime = :endTime, isTimeout = :isTimeout 
         WHERE sessionId = :sessionId
     """)

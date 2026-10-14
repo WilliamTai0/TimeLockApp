@@ -9,5 +9,6 @@ data class RestrictedAppEntity(
     val packageName: String,
     val appName: String,
     val isRestricted: Boolean = true,
-    val addedAt: Long = System.currentTimeMillis()
+    val addedAt: Long = System.currentTimeMillis(),
+    val pendingUnlockUntil: Long? = null
 )

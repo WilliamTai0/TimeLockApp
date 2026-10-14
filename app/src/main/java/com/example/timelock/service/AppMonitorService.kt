@@ -231,7 +231,32 @@ class AppMonitorService : LifecycleService() {
 
         windowOverlayManager.showFloatingTimer(
             remainingMsFlow = remainingMsFlow,
-            totalDurationMs = session.expectedDurationMs
+            totalDurationMs = session.expectedDurationMs,
+            onCapsuleTap = {
+                lifecycleScope.launch {
+                    val activeSession = currentActiveSession
+                    if (activeSession != null) {
+                        val success = sessionManager.applyOvertimePass(activeSession.sessionId, additionalMinutes = 30)
+                        if (success) {
+                            val newExpected = activeSession.expectedDurationMs + 30 * 60_000L
+                            currentActiveSession = activeSession.copy(expectedDurationMs = newExpected)
+                            val remaining = (newExpected - currentAccumulatedMs).coerceAtLeast(0L)
+                            _remainingMsFlow.value = remaining
+                            android.widget.Toast.makeText(
+                                this@AppMonitorService,
+                                "🎟️ 已使用今日加鐘券：延長 30 分鐘！",
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                        } else {
+                            android.widget.Toast.makeText(
+                                this@AppMonitorService,
+                                "今日加鐘額度已用完 (每日限 1 次)",
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+                }
+            }
         )
 
         heartbeatJob = lifecycleScope.launch {

@@ -22,14 +22,17 @@ class GetInstalledAppsUseCase(
      */
     fun execute(includeSystemApps: Boolean): Flow<List<AppInfo>> {
         return restrictedAppDao.getAllRestrictedAppsFlow().map { restrictedList ->
-            val restrictedPackageSet = restrictedList.map { it.packageName }.toSet()
-            getInstalledLauncherApps(includeSystemApps, restrictedPackageSet)
+            val now = System.currentTimeMillis()
+            val validRestrictedMap = restrictedList
+                .filter { it.pendingUnlockUntil == null || it.pendingUnlockUntil > now }
+                .associateBy({ it.packageName }, { it.pendingUnlockUntil })
+            getInstalledLauncherApps(includeSystemApps, validRestrictedMap)
         }
     }
 
     private suspend fun getInstalledLauncherApps(
         includeSystemApps: Boolean,
-        restrictedPackageSet: Set<String>
+        restrictedMap: Map<String, Long?>
     ): List<AppInfo> = withContext(Dispatchers.IO) {
         val packageManager = context.packageManager
         val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
@@ -67,14 +70,16 @@ class GetInstalledAppsUseCase(
                 }
 
                 val appName = packageManager.getApplicationLabel(appInfo).toString()
-                val isRestricted = restrictedPackageSet.contains(packageName)
+                val isRestricted = restrictedMap.containsKey(packageName)
+                val pendingUnlockUntil = restrictedMap[packageName]
 
                 apps.add(
                     AppInfo(
                         packageName = packageName,
                         appName = appName,
                         isSystemApp = isSystemApp,
-                        isRestricted = isRestricted
+                        isRestricted = isRestricted,
+                        pendingUnlockUntil = pendingUnlockUntil
                     )
                 )
             } catch (e: Exception) {

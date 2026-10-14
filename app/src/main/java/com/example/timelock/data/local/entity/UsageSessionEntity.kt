@@ -23,5 +23,7 @@ data class UsageSessionEntity(
     val isTimeout: Boolean = false,
     val isActive: Boolean = true,
     @androidx.room.ColumnInfo(defaultValue = "0")
-    val isQuickReply: Boolean = false
+    val isQuickReply: Boolean = false,
+    @androidx.room.ColumnInfo(defaultValue = "0")
+    val usedOvertimeToken: Boolean = false
 )

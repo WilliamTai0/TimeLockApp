@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
@@ -292,14 +293,29 @@ private fun AppListItem(
 
             Spacer(modifier = Modifier.width(10.dp))
 
+            val now = System.currentTimeMillis()
+            val isPendingUnlock = app.pendingUnlockUntil != null && app.pendingUnlockUntil > now
+            val remainingSeconds = if (isPendingUnlock) ((app.pendingUnlockUntil!! - now) / 1000).coerceAtLeast(0) else 0
+            val pendingMinutes = remainingSeconds / 60
+            val pendingSecs = remainingSeconds % 60
+            val pendingTimeString = String.format("%02d:%02d", pendingMinutes, pendingSecs)
+
             // Restricted Status Badge / Icon Button
+            val badgeBgColor = when {
+                isPendingUnlock -> MaterialTheme.colorScheme.errorContainer
+                app.isRestricted -> MaterialTheme.colorScheme.primaryContainer
+                else -> MaterialTheme.colorScheme.surfaceContainerHighest
+            }
+            val badgeContentColor = when {
+                isPendingUnlock -> MaterialTheme.colorScheme.onErrorContainer
+                app.isRestricted -> MaterialTheme.colorScheme.onPrimaryContainer
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
+            }
+
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(12.dp))
-                    .background(
-                        if (app.isRestricted) MaterialTheme.colorScheme.primaryContainer
-                        else MaterialTheme.colorScheme.surfaceContainerHighest
-                    )
+                    .background(badgeBgColor)
                     .padding(horizontal = 12.dp, vertical = 8.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -308,15 +324,23 @@ private fun AppListItem(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Icon(
-                        imageVector = if (app.isRestricted) Icons.Default.Lock else Icons.Default.LockOpen,
+                        imageVector = when {
+                            isPendingUnlock -> Icons.Default.HourglassTop
+                            app.isRestricted -> Icons.Default.Lock
+                            else -> Icons.Default.LockOpen
+                        },
                         contentDescription = null,
-                        tint = if (app.isRestricted) MaterialTheme.colorScheme.onPrimaryContainer else accentColor,
+                        tint = badgeContentColor,
                         modifier = Modifier.size(16.dp)
                     )
                     Text(
-                        text = if (app.isRestricted) "已限制" else "不限制",
+                        text = when {
+                            isPendingUnlock -> "$pendingTimeString 解除 (撤銷)"
+                            app.isRestricted -> "已限制"
+                            else -> "不限制"
+                        },
                         style = MaterialTheme.typography.labelMedium.copy(
-                            color = if (app.isRestricted) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = badgeContentColor,
                             fontWeight = FontWeight.Bold
                         )
                     )

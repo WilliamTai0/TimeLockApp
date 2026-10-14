@@ -55,14 +55,23 @@ class RestrictedAppsViewModel(application: Application) : AndroidViewModel(appli
 
     fun toggleRestriction(app: AppInfo) {
         viewModelScope.launch {
-            if (app.isRestricted) {
-                restrictedAppDao.deleteByPackageName(app.packageName)
+            val now = System.currentTimeMillis()
+            if (app.pendingUnlockUntil != null && app.pendingUnlockUntil > now) {
+                // 目前處於 10 分鐘冷靜期中，點擊即為「撤銷解除」，立即恢復完全受限
+                restrictedAppDao.setPendingUnlock(app.packageName, null)
+            } else if (app.isRestricted) {
+                // 目前是已限制狀態，啟動 10 分鐘冷靜延遲解除
+                val unlockTargetTime = now + 10 * 60 * 1000L // 10 分鐘
+                restrictedAppDao.setPendingUnlock(app.packageName, unlockTargetTime)
             } else {
+                // 目前未限制，點擊立即加入受限名單
                 restrictedAppDao.insertApp(
                     RestrictedAppEntity(
                         packageName = app.packageName,
                         appName = app.appName,
-                        isRestricted = true
+                        isRestricted = true,
+                        addedAt = now,
+                        pendingUnlockUntil = null
                     )
                 )
             }
