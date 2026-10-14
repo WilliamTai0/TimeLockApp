@@ -138,6 +138,34 @@ class WindowOverlayManager(private val context: Context) {
         addViewToWindow(composeView, isBlocking = true)
     }
 
+    /**
+     * 顯示每日加鐘券確認視窗
+     */
+    fun showOvertimeDialog(
+        canUseToday: Boolean,
+        onConfirm: () -> Unit,
+        onDismiss: () -> Unit = {}
+    ) {
+        if (!XiaomiPermissionHelper.hasOverlayPermission(context)) return
+        dismissAllOverlays()
+
+        val composeView = createComposeView {
+            OvertimeDialog(
+                canUseToday = canUseToday,
+                onConfirm = {
+                    dismissAllOverlays()
+                    onConfirm()
+                },
+                onDismiss = {
+                    dismissAllOverlays()
+                    onDismiss()
+                }
+            )
+        }
+
+        addViewToWindow(composeView, isBlocking = false)
+    }
+
     private fun getRealScreenSize(): Pair<Int, Int> {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             val bounds = windowManager.currentWindowMetrics.bounds

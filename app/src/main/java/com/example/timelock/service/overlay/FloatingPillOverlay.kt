@@ -27,6 +27,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.runtime.collectAsState
 import kotlinx.coroutines.flow.StateFlow
 
@@ -77,8 +80,6 @@ fun FloatingCapsuleContent(
         androidx.compose.material3.MaterialTheme.colorScheme.onSurface
     }
 
-    var totalDragDistance by remember { mutableStateOf(0f) }
-
     Surface(
         shape = RoundedCornerShape(percent = 50),
         color = backgroundColor,
@@ -88,29 +89,43 @@ fun FloatingCapsuleContent(
             .padding(4.dp)
             .alpha(animatedAlpha)
             .pointerInput(Unit) {
-                detectDragGestures(
-                    onDragStart = {
-                        lastInteractionTime = System.currentTimeMillis()
-                        totalDragDistance = 0f
-                    },
-                    onDrag = { change, dragAmount ->
-                        change.consume()
-                        lastInteractionTime = System.currentTimeMillis()
-                        totalDragDistance += kotlin.math.abs(dragAmount.x) + kotlin.math.abs(dragAmount.y)
-                        onDragDelta(dragAmount.x.toInt(), dragAmount.y.toInt())
-                    },
-                    onDragEnd = {
-                        lastInteractionTime = System.currentTimeMillis()
-                        if (totalDragDistance < 15f) {
-                            onTap()
-                        } else {
-                            onDragEnd()
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    lastInteractionTime = System.currentTimeMillis()
+                    var isDrag = false
+                    var totalDragX = 0f
+                    var totalDragY = 0f
+
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+
+                        if (!change.pressed) {
+                            // 手指抬起！
+                            lastInteractionTime = System.currentTimeMillis()
+                            if (!isDrag) {
+                                onTap()
+                            } else {
+                                onDragEnd()
+                            }
+                            break
                         }
-                    },
-                    onDragCancel = {
-                        lastInteractionTime = System.currentTimeMillis()
+
+                        val delta = change.positionChange()
+                        totalDragX += delta.x
+                        totalDragY += delta.y
+
+                        // 超過 12 像素位移判定為拖曳移動
+                        if (!isDrag && (kotlin.math.abs(totalDragX) > 12f || kotlin.math.abs(totalDragY) > 12f)) {
+                            isDrag = true
+                        }
+
+                        if (isDrag) {
+                            change.consume()
+                            onDragDelta(delta.x.toInt(), delta.y.toInt())
+                        }
                     }
-                )
+                }
             }
     ) {
         Row(
