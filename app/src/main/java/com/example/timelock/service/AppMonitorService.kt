@@ -122,7 +122,7 @@ class AppMonitorService : LifecycleService() {
             val appName = appEntity?.appName ?: foregroundPackage
 
             if (currentMonitoredPackage != null && currentMonitoredPackage != foregroundPackage) {
-                windowOverlayManager.dismissFloatingTimer()
+                windowOverlayManager.dismissAllOverlays()
                 heartbeatJob?.cancel()
                 heartbeatJob = null
                 flushCurrentSessionToDb()
@@ -151,7 +151,7 @@ class AppMonitorService : LifecycleService() {
                 flushCurrentSessionToDb()
             }
             currentMonitoredPackage = null
-            windowOverlayManager.dismissFloatingTimer()
+            windowOverlayManager.dismissAllOverlays()
             heartbeatJob?.cancel()
             heartbeatJob = null
         }
@@ -234,17 +234,18 @@ class AppMonitorService : LifecycleService() {
             totalDurationMs = session.expectedDurationMs,
             onCapsuleTap = {
                 lifecycleScope.launch {
-                    val activeSession = currentActiveSession ?: return@launch
+                    if (currentActiveSession == null) return@launch
                     val canUseToday = sessionManager.canUseOvertimeTokenToday()
                     
                     windowOverlayManager.showOvertimeDialog(
                         canUseToday = canUseToday,
                         onConfirm = {
-                            lifecycleScope.launch {
-                                val success = sessionManager.applyOvertimePass(activeSession.sessionId, additionalMinutes = 30)
+                            lifecycleScope.launch confirmLaunch@{
+                                val current = currentActiveSession ?: return@confirmLaunch
+                                val success = sessionManager.applyOvertimePass(current.sessionId, additionalMinutes = 30)
                                 if (success) {
-                                    val newExpected = activeSession.expectedDurationMs + 30 * 60_000L
-                                    currentActiveSession = activeSession.copy(expectedDurationMs = newExpected)
+                                    val newExpected = current.expectedDurationMs + 30 * 60_000L
+                                    currentActiveSession = current.copy(expectedDurationMs = newExpected)
                                     val remaining = (newExpected - currentAccumulatedMs).coerceAtLeast(0L)
                                     _remainingMsFlow.value = remaining
                                     android.widget.Toast.makeText(
@@ -268,25 +269,31 @@ class AppMonitorService : LifecycleService() {
                 currentAccumulatedMs += 1000L
                 dbSyncTickCounter++
 
-                val remainingMs = (session.expectedDurationMs - currentAccumulatedMs).coerceAtLeast(0L)
+                val currentSession = currentActiveSession ?: session
+                val remainingMs = (currentSession.expectedDurationMs - currentAccumulatedMs).coerceAtLeast(0L)
                 _remainingMsFlow.value = remainingMs
 
                 // 每 5 秒節流寫入 Room DB
                 if (dbSyncTickCounter >= 5) {
-                    sessionManager.updateHeartbeat(session.sessionId, currentAccumulatedMs, now)
+                    sessionManager.updateHeartbeat(currentSession.sessionId, currentAccumulatedMs, now)
                     dbSyncTickCounter = 0
                 }
 
+                // 若時間被加長超過 1 分鐘，重置 1 分鐘預警狀態
+                if (remainingMs > 60_000L) {
+                    notifiedWarning = false
+                }
+
                 // 剩餘 1 分鐘預警 (非快速回覆模式)
-                if (remainingMs in 1L..60_000L && !notifiedWarning && !session.isQuickReply) {
+                if (remainingMs in 1L..60_000L && !notifiedWarning && !currentSession.isQuickReply) {
                     showOneMinuteWarningNotification(appName)
                     notifiedWarning = true
                 }
 
                 // 0ms 瞬間阻斷
                 if (remainingMs <= 0L) {
-                    val updatedSession = session.copy(accumulatedUsageMs = currentAccumulatedMs, lastHeartbeatTime = now)
-                    sessionManager.updateHeartbeat(session.sessionId, currentAccumulatedMs, now)
+                    val updatedSession = currentSession.copy(accumulatedUsageMs = currentAccumulatedMs, lastHeartbeatTime = now)
+                    sessionManager.updateHeartbeat(currentSession.sessionId, currentAccumulatedMs, now)
                     showBlockingOverlay(appName, updatedSession)
                     break
                 }

@@ -139,7 +139,7 @@ class WindowOverlayManager(private val context: Context) {
     }
 
     /**
-     * 顯示每日加鐘券確認視窗
+     * 顯示每日加鐘券確認視窗 (僅關閉 Modal，保留懸浮膠囊計時器)
      */
     fun showOvertimeDialog(
         canUseToday: Boolean,
@@ -147,20 +147,32 @@ class WindowOverlayManager(private val context: Context) {
         onDismiss: () -> Unit = {}
     ) {
         if (!XiaomiPermissionHelper.hasOverlayPermission(context)) return
-        dismissAllOverlays()
+        dismissModalOverlay()
 
         val composeView = createComposeView {
             OvertimeDialog(
                 canUseToday = canUseToday,
                 onConfirm = {
-                    dismissAllOverlays()
+                    dismissModalOverlay()
                     onConfirm()
                 },
                 onDismiss = {
-                    dismissAllOverlays()
+                    dismissModalOverlay()
                     onDismiss()
                 }
             )
+        }
+
+        composeView.isFocusableInTouchMode = true
+        composeView.requestFocus()
+        composeView.setOnKeyListener { _, keyCode, event ->
+            if (keyCode == android.view.KeyEvent.KEYCODE_BACK && event.action == android.view.KeyEvent.ACTION_UP) {
+                dismissModalOverlay()
+                onDismiss()
+                true
+            } else {
+                false
+            }
         }
 
         addViewToWindow(composeView, isBlocking = false)
@@ -293,8 +305,7 @@ class WindowOverlayManager(private val context: Context) {
         }
     }
 
-    fun dismissAllOverlays() {
-        dismissFloatingTimer()
+    fun dismissModalOverlay() {
         currentOverlayView?.let { view ->
             try {
                 windowManager.removeView(view)
@@ -303,6 +314,11 @@ class WindowOverlayManager(private val context: Context) {
             currentOverlayView = null
             overlayLifecycleOwner = null
         }
+    }
+
+    fun dismissAllOverlays() {
+        dismissFloatingTimer()
+        dismissModalOverlay()
     }
 
     fun release() {

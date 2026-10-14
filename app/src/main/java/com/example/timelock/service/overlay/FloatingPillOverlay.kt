@@ -98,11 +98,16 @@ fun FloatingCapsuleContent(
 
                     while (true) {
                         val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        val change = event.changes.firstOrNull { it.id == down.id }
+                        if (change == null) {
+                            if (isDrag) onDragEnd()
+                            break
+                        }
 
                         if (!change.pressed) {
                             // 手指抬起！
                             lastInteractionTime = System.currentTimeMillis()
+                            change.consume()
                             if (!isDrag) {
                                 onTap()
                             } else {
