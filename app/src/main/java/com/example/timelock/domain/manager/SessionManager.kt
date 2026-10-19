@@ -15,8 +15,8 @@ class SessionManager(
     private val usageSessionDao: UsageSessionDao
 ) {
 
-    suspend fun evaluateSessionState(packageName: String): SessionEvaluationState {
-        val now = System.currentTimeMillis()
+    suspend fun evaluateSessionState(packageName: String, currentTime: Long = System.currentTimeMillis()): SessionEvaluationState {
+        val now = currentTime
         val activeSession = usageSessionDao.getActiveGlobalSession()
 
         if (activeSession == null) {
@@ -40,15 +40,40 @@ class SessionManager(
     }
 
     private suspend fun checkGlobalCooldown(now: Long): SessionEvaluationState {
-        // 檢查是否有已結束的會話在冷卻期內 (全域冷卻 3 分鐘)
+        // 檢查是否有已結束的會話在動態冷卻期內 (方案一：依使用時長動態冷卻，保底 50% 承諾)
         val latestCompleted = usageSessionDao.getLatestCompletedSession()
-        if (latestCompleted?.endTime != null && (now - latestCompleted.endTime) < COOLDOWN_PERIOD_MS) {
-            val remaining = COOLDOWN_PERIOD_MS - (now - latestCompleted.endTime)
-            val allowQuickReply = !latestCompleted.isQuickReply
-            return SessionEvaluationState.InGlobalCooldown(remaining, allowQuickReply)
+        if (latestCompleted?.endTime != null) {
+            val cooldownDurationMs = calculateCooldownMs(
+                actualUsageMs = latestCompleted.actualDurationMs,
+                expectedDurationMs = latestCompleted.expectedDurationMs
+            )
+            val elapsed = now - latestCompleted.endTime
+            if (elapsed < cooldownDurationMs) {
+                val remaining = cooldownDurationMs - elapsed
+                val allowQuickReply = !latestCompleted.isQuickReply
+                return SessionEvaluationState.InGlobalCooldown(remaining, allowQuickReply)
+            }
         }
 
         return SessionEvaluationState.RequireSetup
+    }
+
+    /**
+     * 動態計算冷卻時間 (方案一：Weighted Floor)
+     * 基準 = max(實際使用時長, 預設時長 * 50%)
+     * - base <= 5 分鐘：CD 2 分鐘
+     * - 其餘：base * 0.25 (保底 3 分鐘，上限 15 分鐘)
+     */
+    fun calculateCooldownMs(actualUsageMs: Long, expectedDurationMs: Long): Long {
+        val baseMs = maxOf(actualUsageMs, (expectedDurationMs * 0.5).toLong())
+        val baseMinutes = baseMs / 60_000.0
+
+        val cdMinutes = when {
+            baseMinutes <= 5.0 -> 2.0
+            else -> (baseMinutes * 0.25).coerceIn(3.0, 15.0)
+        }
+
+        return (cdMinutes * 60_000L).toLong()
     }
 
     suspend fun createNewSession(packageName: String, durationMinutes: Int): UsageSessionEntity {

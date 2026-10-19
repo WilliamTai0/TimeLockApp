@@ -1,4 +1,4 @@
-﻿package com.example.timelock.domain.manager
+package com.example.timelock.domain.manager
 
 import com.example.timelock.data.local.dao.RestrictedAppDao
 import com.example.timelock.data.local.dao.UsageSessionDao
@@ -116,6 +116,88 @@ class NewFeaturesTest {
         val app = fakeRestrictedDao.getRestrictedApp(packageName)!!
         assertNull("撤銷後 pendingUnlockUntil 應該恢復為 null", app.pendingUnlockUntil)
         assertTrue("撤銷後 App 依然完全受限", fakeRestrictedDao.isAppRestricted(packageName, now + 15 * 60 * 1000L))
+    }
+
+    // --- 測試 3：動態冷卻時間（Dynamic Cooldown with 50% Commitment Floor）---
+
+    @Test
+    fun test_dynamic_cooldown_calculation() {
+        // 1. <= 5 分鐘場景：CD 2 分鐘 (120_000L)
+        assertEquals(120_000L, sessionManager.calculateCooldownMs(actualUsageMs = 5 * 60_000L, expectedDurationMs = 5 * 60_000L))
+        assertEquals(120_000L, sessionManager.calculateCooldownMs(actualUsageMs = 1 * 60_000L, expectedDurationMs = 5 * 60_000L))
+
+        // 2. 10 分鐘場景：10 * 0.25 = 2.5m -> 保底 3 分鐘 (180_000L)
+        assertEquals(180_000L, sessionManager.calculateCooldownMs(actualUsageMs = 10 * 60_000L, expectedDurationMs = 10 * 60_000L))
+
+        // 3. 15 分鐘場景：15 * 0.25 = 3.75m (225_000L)
+        assertEquals(225_000L, sessionManager.calculateCooldownMs(actualUsageMs = 15 * 60_000L, expectedDurationMs = 15 * 60_000L))
+
+        // 4. 30 分鐘場景：30 * 0.25 = 7.5m (450_000L)
+        assertEquals(450_000L, sessionManager.calculateCooldownMs(actualUsageMs = 30 * 60_000L, expectedDurationMs = 30 * 60_000L))
+
+        // 5. 45 分鐘場景：45 * 0.25 = 11.25m (675_000L)
+        assertEquals(675_000L, sessionManager.calculateCooldownMs(actualUsageMs = 45 * 60_000L, expectedDurationMs = 45 * 60_000L))
+
+        // 6. 60 分鐘場景：60 * 0.25 = 15m (上限 900_000L)
+        assertEquals(900_000L, sessionManager.calculateCooldownMs(actualUsageMs = 60 * 60_000L, expectedDurationMs = 60 * 60_000L))
+
+        // 7. 防無腦揀大：預設 60 分鐘但只玩 2 分鐘，承諾底線為 30 分鐘 -> CD 7.5 分鐘 (450_000L)
+        assertEquals(450_000L, sessionManager.calculateCooldownMs(actualUsageMs = 2 * 60_000L, expectedDurationMs = 60 * 60_000L))
+
+        // 8. 提早收手：預設 30 分鐘，在 10 分鐘提早結束，底線為 15 分鐘 -> CD 3.75 分鐘 (225_000L)
+        assertEquals(225_000L, sessionManager.calculateCooldownMs(actualUsageMs = 10 * 60_000L, expectedDurationMs = 30 * 60_000L))
+    }
+
+    @Test
+    fun test_dynamic_cooldown_evaluation_state() = runBlocking {
+        val now = 10000000L
+        val packageName = "com.test.game"
+
+        // 模擬剛結束一個 30 分鐘會話 (預期 30m, 實際 30m -> CD 7.5 分鐘 = 450,000ms)
+        fakeUsageDao.insertSession(
+            UsageSessionEntity(
+                sessionId = 101L,
+                packageName = packageName,
+                expectedDurationMs = 30 * 60_000L,
+                actualDurationMs = 30 * 60_000L,
+                startTime = now - 30 * 60_000L,
+                endTime = now,
+                isActive = false
+            )
+        )
+
+        // 過了 5 分鐘 (300,000ms)：依然在冷卻期內 (剩餘 150,000ms = 2.5 分鐘)
+        val stateAt5m = sessionManager.evaluateSessionState(packageName, now + 300_000L)
+        assertTrue("過了 5 分鐘依然應該在 7.5 分鐘冷卻期內", stateAt5m is SessionEvaluationState.InGlobalCooldown)
+        val cooldownState = stateAt5m as SessionEvaluationState.InGlobalCooldown
+        assertEquals(150_000L, cooldownState.remainingCooldownMs)
+
+        // 過了 8 分鐘 (480,000ms)：超過 7.5 分鐘，冷卻結束，應該要求重新設定
+        val stateAt8m = sessionManager.evaluateSessionState(packageName, now + 480_000L)
+        assertTrue("超過 7.5 分鐘後冷卻應該解除", stateAt8m is SessionEvaluationState.RequireSetup)
+
+        // 模擬另一個剛結束的 5 分鐘會話 (預期 5m, 實際 5m -> CD 2 分鐘 = 120,000ms)
+        fakeUsageDao.insertSession(
+            UsageSessionEntity(
+                sessionId = 102L,
+                packageName = packageName,
+                expectedDurationMs = 5 * 60_000L,
+                actualDurationMs = 5 * 60_000L,
+                startTime = now + 480_000L,
+                endTime = now + 480_000L + 5 * 60_000L,
+                isActive = false
+            )
+        )
+
+        val endOf5mSession = now + 480_000L + 5 * 60_000L
+
+        // 過了 1 分鐘：依然在 2 分鐘冷卻期內
+        val stateShort1m = sessionManager.evaluateSessionState(packageName, endOf5mSession + 60_000L)
+        assertTrue("5 分鐘會話結束 1 分鐘後應該在 2 分鐘冷卻期內", stateShort1m is SessionEvaluationState.InGlobalCooldown)
+
+        // 過了 2.5 分鐘：超過 2 分鐘，冷卻結束
+        val stateShortPassed = sessionManager.evaluateSessionState(packageName, endOf5mSession + 150_000L)
+        assertTrue("超過 2 分鐘後冷卻應該解除", stateShortPassed is SessionEvaluationState.RequireSetup)
     }
 }
 

@@ -188,15 +188,15 @@ fun TimeSetupScreen(
                             onValueChange = { input ->
                                 if (input.all { it.isDigit() } && input.length <= 4) {
                                     val parsed = input.toIntOrNull()
-                                    if (parsed != null && parsed > 30) {
-                                        customMinutesText = "30"
+                                    if (parsed != null && parsed > 60) {
+                                        customMinutesText = "60"
                                     } else {
                                         customMinutesText = input
                                     }
                                 }
                             },
                             label = { Text("自訂時間 (分鐘)", color = MaterialTheme.colorScheme.onSurfaceVariant) },
-                            placeholder = { Text("最高：30", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                            placeholder = { Text("最高：60", color = MaterialTheme.colorScheme.onSurfaceVariant) },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = MaterialTheme.colorScheme.primary,
@@ -222,7 +222,7 @@ fun TimeSetupScreen(
                             }
                             Button(
                                 onClick = {
-                                    val minutes = customMinutesText.toIntOrNull()?.coerceIn(1, 30) ?: 15
+                                    val minutes = customMinutesText.toIntOrNull()?.coerceIn(1, 60) ?: 15
                                     onConfirm(minutes)
                                 },
                                 modifier = Modifier.weight(1f),
