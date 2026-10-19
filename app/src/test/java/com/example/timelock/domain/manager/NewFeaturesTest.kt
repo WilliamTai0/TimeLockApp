@@ -199,6 +199,42 @@ class NewFeaturesTest {
         val stateShortPassed = sessionManager.evaluateSessionState(packageName, endOf5mSession + 150_000L)
         assertTrue("超過 2 分鐘後冷卻應該解除", stateShortPassed is SessionEvaluationState.RequireSetup)
     }
+
+    @Test
+    fun test_grace_period_expiry_with_long_session_still_enforces_remaining_cooldown() = runBlocking {
+        val t0 = 10000000L
+        val packageName = "com.test.game"
+
+        // 1. 用戶開啟 60 分鐘會話，已使用 59 分鐘
+        fakeUsageDao.insertSession(
+            UsageSessionEntity(
+                sessionId = 201L,
+                packageName = packageName,
+                expectedDurationMs = 60 * 60_000L,
+                accumulatedUsageMs = 59 * 60_000L,
+                startTime = t0,
+                lastHeartbeatTime = t0 + 59 * 60_000L, // 在第 59 分鐘跳出
+                isActive = true
+            )
+        )
+
+        val leaveTime = t0 + 59 * 60_000L
+
+        // 場景 A：跳出後只停了 1 分鐘（未過 3 分鐘寬限期）
+        val stateWithinGrace = sessionManager.evaluateSessionState(packageName, leaveTime + 60_000L)
+        assertTrue("未超過 3 分鐘寬限期，應該無縫接續舊會話", stateWithinGrace is SessionEvaluationState.ResumeSession)
+        val resumeState = stateWithinGrace as SessionEvaluationState.ResumeSession
+        assertEquals("剩餘時間應該依然是最後 1 分鐘", 60_000L, resumeState.remainingMs)
+
+        // 場景 B：跳出後停了 3.1 分鐘（超過 3 分鐘寬限期，舊會話被強制結算）
+        val stateAfterGrace = sessionManager.evaluateSessionState(packageName, leaveTime + 186_000L)
+        assertTrue("超過 3 分鐘寬限期結算後，因為使用 59 分鐘對應 15 分鐘 CD，此時只過了 3.1 分鐘，絕不能重新設定，必須處於全域冷卻！", 
+            stateAfterGrace is SessionEvaluationState.InGlobalCooldown)
+        
+        val cooldownState = stateAfterGrace as SessionEvaluationState.InGlobalCooldown
+        // 實際使用 59 分鐘 -> 59 * 0.25 = 14.75 分鐘 (885,000ms)，已流逝 3.1 分鐘 (186,000ms)，剩餘 11.65 分鐘 (699,000ms)
+        assertEquals(699_000L, cooldownState.remainingCooldownMs)
+    }
 }
 
 // --- Fake DAOs for fast, zero-dependency testing ---
